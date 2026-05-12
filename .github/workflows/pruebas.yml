@@ -1,0 +1,75 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Permite ejecutarlo manualmente
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: todo-app-windows
+            output_name: main.exe
+          - os: ubuntu-latest
+            artifact_name: todo-app-linux
+            output_name: main
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySide6 pyinstaller
+
+      - name: Construir con PyInstaller
+        run: |
+          pyinstaller --noconsole --onefile --collect-all PySide6 main.py
+
+      # --- PASOS ESPECÍFICOS PARA LINUX (.DEB) ---
+      - name: Crear paquete .deb (Solo Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p todo-app-pkg/usr/bin
+          mkdir -p todo-app-pkg/DEBIAN
+          cp dist/main todo-app-pkg/usr/bin/todo-app
+          
+          # Crear archivo de control para el paquete deb
+          echo "Package: todo-app-pyside6" > todo-app-pkg/DEBIAN/control
+          echo "Version: 1.0.0" >> todo-app-pkg/DEBIAN/control
+          echo "Section: utils" >> todo-app-pkg/DEBIAN/control
+          echo "Priority: optional" >> todo-app-pkg/DEBIAN/control
+          echo "Architecture: amd64" >> todo-app-pkg/DEBIAN/control
+          echo "Maintainer: TuNombre" >> todo-app-pkg/DEBIAN/control
+          echo "Description: Lista de tareas creada con PySide6" >> todo-app-pkg/DEBIAN/control
+          
+          chmod +x todo-app-pkg/usr/bin/todo-app
+          dpkg-deb --build todo-app-pkg todo-app.deb
+
+      # --- SUBIR ARTIFACTS ---
+      - name: Subir ejecutable Windows
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.output_name }}
+
+      - name: Subir paquete Debian
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: todo-app.deb
